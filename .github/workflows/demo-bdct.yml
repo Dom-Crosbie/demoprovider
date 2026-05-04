@@ -27,8 +27,10 @@ jobs:
           dotnet restore tests
 
       - name: Start provider server
+        env:
+          ASPNETCORE_URLS: http://localhost:9000
         run: |
-          ASPNETCORE_URLS=http://localhost:9000 dotnet run --project src &
+          dotnet run --project src &
           echo $! > server.PID
           
           # Wait for provider to be ready
