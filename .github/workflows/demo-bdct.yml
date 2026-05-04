@@ -43,7 +43,9 @@ jobs:
             --server-url http://localhost:9000 \
             --generate-result \
             --output-dir drift-results
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          DRIFT_EXIT=$?
+          echo "exit_code=$DRIFT_EXIT" >> "$GITHUB_OUTPUT"
+          exit $DRIFT_EXIT
         continue-on-error: true
 
       - name: Stop provider server
