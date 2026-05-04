@@ -28,7 +28,7 @@ jobs:
 
       - name: Start provider server
         run: |
-          dotnet run --project src &
+          ASPNETCORE_URLS=http://localhost:9000 dotnet run --project src &
           echo $! > server.PID
           
           # Wait for provider to be ready
