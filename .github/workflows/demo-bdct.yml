@@ -30,7 +30,23 @@ jobs:
         run: |
           dotnet run --project src &
           echo $! > server.PID
-          sleep 6
+          
+          # Wait for provider to be ready
+          echo "Waiting for provider to be ready..."
+          for i in {1..30}; do
+            if curl -s http://localhost:9000/products > /dev/null 2>&1; then
+              echo "Provider is ready!"
+              break
+            fi
+            echo "Attempt $i/30: Provider not ready yet, waiting..."
+            sleep 2
+          done
+          
+          # Final check
+          if ! curl -s http://localhost:9000/products > /dev/null 2>&1; then
+            echo "ERROR: Provider failed to start after 60 seconds"
+            exit 1
+          fi
 
       - name: Install Drift
         run: npm install -g @pactflow/drift
