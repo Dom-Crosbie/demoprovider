@@ -85,7 +85,7 @@ jobs:
               --provider-app-version "${{ github.sha }}" \
               --branch "${{ github.ref_name }}" \
               --verification-exit-code "${{ steps.drift.outputs.exit_code }}" \
-              --verification-results "${RESULT_FILE}" \
+              --verification-results "${PWD}/${RESULT_FILE}" \
               --verification-results-content-type application/vnd.smartbear.drift.result \
               --verifier drift \
               --verifier-version 0.0.12 \
