@@ -38,15 +38,16 @@ jobs:
       - name: Run Drift tests and generate result bundle
         id: drift
         run: |
+          set +e
           drift verify \
             --test-files drift/drift.yaml \
             --server-url http://localhost:9000 \
             --generate-result \
             --output-dir drift-results
           DRIFT_EXIT=$?
+          set -e
           echo "exit_code=$DRIFT_EXIT" >> "$GITHUB_OUTPUT"
-          exit $DRIFT_EXIT
-        continue-on-error: true
+          echo "Drift exited with code: $DRIFT_EXIT"
 
       - name: Stop provider server
         if: always()
