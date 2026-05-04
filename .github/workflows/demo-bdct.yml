@@ -1,0 +1,95 @@
+name: Demo — BDCT (Drift + PactFlow)
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  PACT_BROKER_BASE_URL: https://dom-crosbie.pactflow.io
+  PACT_BROKER_TOKEN: ${{ secrets.PACTFLOW_TOKEN }}
+
+jobs:
+  bdct:
+    name: Drift Tests + Publish BDCT
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore dependencies
+        run: |
+          dotnet restore src
+          dotnet restore tests
+
+      - name: Start provider server
+        run: |
+          dotnet run --project src &
+          echo $! > server.PID
+          sleep 6
+
+      - name: Install Drift
+        run: npm install -g @pactflow/drift
+
+      - name: Run Drift tests and generate result bundle
+        id: drift
+        run: |
+          drift verify \
+            --test-files drift/drift.yaml \
+            --server-url http://localhost:9000 \
+            --generate-result \
+            --output-dir drift-results
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      - name: Stop provider server
+        if: always()
+        run: kill $(cat server.PID) || true
+
+      - name: Publish provider contract to PactFlow (BDCT)
+        run: |
+          RESULT_FILE=$(ls -t drift-results/results/*.result | head -n 1)
+          docker pull pactfoundation/pact-cli:latest
+          docker run --rm \
+            -v "${PWD}:${PWD}" \
+            -e PACT_BROKER_BASE_URL \
+            -e PACT_BROKER_TOKEN \
+            pactfoundation/pact-cli:latest \
+            pactflow publish-provider-contract "${PWD}/openapi.yaml" \
+              --provider demoprovider-dotnet \
+              --provider-app-version "${{ github.sha }}" \
+              --branch "${{ github.ref_name }}" \
+              --verification-exit-code "${{ steps.drift.outputs.exit_code }}" \
+              --verification-results "${RESULT_FILE}" \
+              --verification-results-content-type application/vnd.smartbear.drift.result \
+              --verifier drift \
+              --verifier-version 0.0.12 \
+              --content-type application/yaml
+
+      - name: Can I deploy?
+        run: |
+          docker run --rm \
+            -e PACT_BROKER_BASE_URL \
+            -e PACT_BROKER_TOKEN \
+            pactfoundation/pact-cli:latest \
+            broker can-i-deploy \
+              --pacticipant demoprovider-dotnet \
+              --version "${{ github.sha }}" \
+              --to-environment production \
+              --retry-while-unknown 3 \
+              --retry-interval 10
+
+      - name: Upload Drift results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-results
+          path: drift-results/
+
+      - name: Fail if Drift tests failed
+        if: steps.drift.outputs.exit_code != '0'
+        run: exit 1

@@ -1,0 +1,49 @@
+# yaml-language-server: $schema=https://download.pactflow.io/drift/schemas/drift.testcases.v1.schema.json
+drift-testcase-file: v1
+title: "Product API Tests"
+
+sources:
+  - name: source-oas
+    path: ../openapi.yaml
+  - name: product-data
+    path: ./products.dataset.yaml
+
+plugins:
+  - name: oas
+  - name: json
+  - name: data
+
+operations:
+
+  # ── GET /products ──────────────────────────────────────────────────────────
+
+  getAllProducts_Success:
+    target: source-oas:getAllProducts
+    tags: [smoke, read-only, products]
+    expected:
+      response:
+        statusCode: 200
+
+  # ── GET /product/{id} ──────────────────────────────────────────────────────
+
+  getProductByID_Success:
+    target: source-oas:getProductByID
+    tags: [smoke, read-only, products]
+    dataset: product-data
+    parameters:
+      path:
+        id: ${product-data:products.existing.id}
+    expected:
+      response:
+        statusCode: 200
+
+  getProductByID_NotFound:
+    target: source-oas:getProductByID
+    tags: [read-only, products, validation]
+    dataset: product-data
+    parameters:
+      path:
+        id: ${product-data:notIn(products.*.id)}
+    expected:
+      response:
+        statusCode: 404

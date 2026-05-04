@@ -1,8 +1,10 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using PactNet.Infrastructure.Outputters;
 using PactNet.Output.Xunit;
 using PactNet.Verifier;
@@ -16,21 +18,31 @@ public class ProviderApiTests : IDisposable
 {
     private string _providerUri { get; }
     private string _pactServiceUri { get; }
+    private IWebHost _providerWebHost { get; }
     private IWebHost _webHost { get; }
     private ITestOutputHelper _outputHelper { get; }
 
     public ProviderApiTests(ITestOutputHelper output)
     {
         _outputHelper = output;
-        _providerUri = "http://localhost:9000";
-        _pactServiceUri = "http://localhost:9001";
+
+        _providerWebHost = WebHost.CreateDefaultBuilder()
+            .UseUrls("http://127.0.0.1:0")
+            .UseStartup<Products.Startup>()
+            .Build();
+
+        _providerWebHost.Start();
+        _providerUri = _providerWebHost.ServerFeatures.Get<IServerAddressesFeature>()?.Addresses.First()
+            ?? throw new InvalidOperationException("Unable to determine provider server address.");
 
         _webHost = WebHost.CreateDefaultBuilder()
-            .UseUrls(_pactServiceUri)
+            .UseUrls("http://127.0.0.1:0")
             .UseStartup<TestStartup>()
             .Build();
 
         _webHost.Start();
+        _pactServiceUri = _webHost.ServerFeatures.Get<IServerAddressesFeature>()?.Addresses.First()
+            ?? throw new InvalidOperationException("Unable to determine provider state server address.");
     }
 
     [Fact]
@@ -61,6 +73,7 @@ public class ProviderApiTests : IDisposable
         string pactFile = Environment.GetEnvironmentVariable("PACT_FILE");
         string version = Environment.GetEnvironmentVariable("GIT_COMMIT");
         string branch = Environment.GetEnvironmentVariable("GIT_BRANCH");
+        bool shouldPublishVerificationResults = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PACT_BROKER_PUBLISH_VERIFICATION_RESULTS")) && !string.IsNullOrEmpty(version);
         string buildUri = $"{Environment.GetEnvironmentVariable("GITHUB_SERVER_URL")}/{Environment.GetEnvironmentVariable("GITHUB_REPOSITORY")}/actions/runs/{Environment.GetEnvironmentVariable("GITHUB_RUN_ID")}";
 
 
@@ -89,10 +102,17 @@ public class ProviderApiTests : IDisposable
                 {
                     options.BasicAuthentication(Environment.GetEnvironmentVariable("PACT_BROKER_USERNAME"), Environment.GetEnvironmentVariable("PACT_BROKER_PASSWORD"));
                 }
-                options.PublishResults(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PACT_BROKER_PUBLISH_VERIFICATION_RESULTS")), version, results =>
+                options.PublishResults(shouldPublishVerificationResults, version, results =>
                     {
-                        results.ProviderBranch(branch)
-                        .BuildUri(new Uri(buildUri));
+                        if (!string.IsNullOrEmpty(branch))
+                        {
+                            results.ProviderBranch(branch);
+                        }
+
+                        if (Uri.TryCreate(buildUri, UriKind.Absolute, out var parsedBuildUri))
+                        {
+                            results.BuildUri(parsedBuildUri);
+                        }
                     });
             })
             .WithProviderStateUrl(new Uri($"{_pactServiceUri}/provider-states"))
@@ -109,19 +129,42 @@ public class ProviderApiTests : IDisposable
             pactVerifier.WithHttpEndpoint(new Uri(_providerUri))
                 .WithPactBrokerSource(new Uri(Environment.GetEnvironmentVariable("PACT_BROKER_BASE_URL")), options =>
                 {
-                    options.ConsumerVersionSelectors(
-                                new ConsumerVersionSelector { DeployedOrReleased = true },
-                                new ConsumerVersionSelector { MainBranch = true },
-                                new ConsumerVersionSelector { MatchingBranch = true }
-                            )
-                            .ProviderBranch(branch)
-                            .PublishResults(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PACT_BROKER_PUBLISH_VERIFICATION_RESULTS")), version, results =>
+                    var consumerVersionSelectors = new List<ConsumerVersionSelector>
+                    {
+                        new ConsumerVersionSelector { DeployedOrReleased = true },
+                        new ConsumerVersionSelector { MainBranch = true }
+                    };
+
+                    if (!string.IsNullOrEmpty(branch))
+                    {
+                        consumerVersionSelectors.Add(new ConsumerVersionSelector { MatchingBranch = true });
+                    }
+
+                    options.ConsumerVersionSelectors(consumerVersionSelectors.ToArray())
+                            .PublishResults(shouldPublishVerificationResults, version, results =>
                             {
-                                results.ProviderBranch(branch)
-                               .BuildUri(new Uri(buildUri));
+                                if (!string.IsNullOrEmpty(branch))
+                                {
+                                    results.ProviderBranch(branch);
+                                }
+
+                                if (Uri.TryCreate(buildUri, UriKind.Absolute, out var parsedBuildUri))
+                                {
+                                    results.BuildUri(parsedBuildUri);
+                                }
                             })
-                            .EnablePending()
-                            .IncludeWipPactsSince(new DateTime(2022, 1, 1));
+                            .EnablePending();
+
+                    if (!string.IsNullOrEmpty(branch))
+                    {
+                        options.ProviderBranch(branch);
+                    }
+
+                    if (branch == "main" || branch == "master")
+                    {
+                        options.IncludeWipPactsSince(new DateTime(2022, 1, 1));
+                    }
+
                     // Conditionally set authentication depending on if you are using an Pact Broker / PactFlow Broker
                     // You may not have credentials with your own broker.
                     if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PACT_BROKER_TOKEN")))
@@ -155,6 +198,7 @@ public class ProviderApiTests : IDisposable
 
         if (disposing)
         {
+            _providerWebHost.Dispose();
             _webHost.Dispose();
         }
 

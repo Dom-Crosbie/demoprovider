@@ -1,0 +1,78 @@
+openapi: "3.0.0"
+info:
+  title: Product API
+  version: "1.0.0"
+  description: Example provider API for products
+
+paths:
+  /products:
+    get:
+      operationId: getAllProducts
+      summary: Get all products
+      tags:
+        - products
+      responses:
+        "200":
+          description: A list of all products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+              example:
+                - id: "1"
+                  type: food
+                  name: pancake
+                  version: 1.0.0
+
+  /product/{id}:
+    get:
+      operationId: getProductByID
+      summary: Get a product by ID
+      tags:
+        - products
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "1"
+      responses:
+        "200":
+          description: Product found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+              example:
+                id: "1"
+                type: food
+                name: pancake
+                version: 1.0.0
+        "404":
+          description: Product not found
+
+components:
+  schemas:
+    Product:
+      type: object
+      required:
+        - id
+        - type
+        - name
+        - version
+      properties:
+        id:
+          type: string
+          example: "1"
+        type:
+          type: string
+          example: food
+        name:
+          type: string
+          example: pancake
+        version:
+          type: string
+          example: 1.0.0

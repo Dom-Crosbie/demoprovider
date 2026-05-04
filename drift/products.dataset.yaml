@@ -1,0 +1,15 @@
+drift-dataset-file: V1
+datasets:
+  - name: product-data
+    data:
+      products:
+        existing:
+          id: "1"
+          type: food
+          name: pancake
+          version: 1.0.0
+        another:
+          id: "2"
+          type: food
+          name: sanwhich
+          version: 1.0.0

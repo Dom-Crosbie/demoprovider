@@ -1,4 +1,4 @@
-PACTICIPANT := "pactflow-example-provider-dotnet"
+PACTICIPANT := "demoprovider-dotnet"
 GITHUB_REPO := "pactflow/example-provider-dotnet"
 CONTRACT_REQUIRING_VERIFICATION_PUBLISHED_WEBHOOK_UUID := "46ed3f10-d03f-43cd-b945-ce45ff42d324"
 PACT_CLI="docker run --rm -v ${PWD}:${PWD} -e PACT_BROKER_BASE_URL -e PACT_BROKER_TOKEN pactfoundation/pact-cli:latest"
@@ -30,6 +30,12 @@ run:
 
 ci: run_tests can_i_deploy $(DEPLOY_TARGET)
 
+# Demo CI: Drift + BDCT publish + can-i-deploy using full git SHA
+demo_ci:
+	GIT_COMMIT=`git rev-parse HEAD` \
+	GIT_BRANCH=`git rev-parse --abbrev-ref HEAD` \
+	make run_tests drift_test publish_provider_contract can_i_deploy
+
 start: server.PID
 
 wait: 
@@ -59,7 +65,32 @@ ci_webhook: run_tests
 test: .env
 	dotnet test tests
 
-run_tests: restore start $(WAIT_TARGET) test stop 
+run_tests: restore start $(WAIT_TARGET) test stop
+
+# Run Drift and generate BDCT result bundle (server must already be running)
+drift_test:
+	drift verify \
+	  --test-files drift/drift.yaml \
+	  --server-url http://localhost:9000 \
+	  --generate-result \
+	  --output-dir drift-results; \
+	echo $$? > drift-results/exit-code
+
+# Publish OpenAPI spec + Drift results to PactFlow (BDCT)
+publish_provider_contract: .env
+	@EXIT_CODE=`cat drift-results/exit-code`; \
+	RESULT_FILE=`ls -t drift-results/results/*.result | head -n 1`; \
+	"${PACT_CLI}" \
+	  pactflow publish-provider-contract ${PWD}/openapi.yaml \
+	    --provider ${PACTICIPANT} \
+	    --provider-app-version ${GIT_COMMIT} \
+	    --branch ${GIT_BRANCH} \
+	    --verification-exit-code $$EXIT_CODE \
+	    --verification-results $$RESULT_FILE \
+	    --verification-results-content-type application/vnd.smartbear.drift.result \
+	    --verifier drift \
+	    --verifier-version 0.0.12 \
+	    --content-type application/yaml
 
 ## =====================
 ## Deploy tasks
